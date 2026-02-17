@@ -1,6 +1,11 @@
 require("dotenv").config();
 const { Bot, InlineKeyboard } = require("grammy");
 const fs = require("fs");
+const express = require("express");
+
+// Создаем Express приложение
+const app = express();
+const port = process.env.PORT || 3000;
 
 const bot = new Bot(process.env.BOT_TOKEN);
 
@@ -43,7 +48,7 @@ function parseDate(dateString) {
     const parts = dateString.split('.');
     if (parts.length === 3) {
         const day = parseInt(parts[0]);
-        const month = parseInt(parts[1]) - 1; // Месяцы в JS от 0 до 11
+        const month = parseInt(parts[1]) - 1;
         const year = parseInt(parts[2]);
         return new Date(year, month, day);
     }
@@ -72,24 +77,17 @@ async function checkDeadlines() {
         const deadlineDate = parseDate(collection.deadline);
         if (!deadlineDate) continue;
         
-        // Приводим дату дедлайна к началу дня
         const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
-        
-        // Вычисляем разницу в днях
         const diffTime = deadlineDay - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
-        // Отправляем напоминания за 3 дня, за 1 день и в день дедлайна
         if (diffDays === 3 || diffDays === 1 || diffDays === 0) {
-            // Проверяем, отправляли ли уже напоминание сегодня
             const reminderKey = `reminder_${formatDate(today)}`;
             if (!collection[reminderKey]) {
                 collection[reminderKey] = true;
                 
-                // Отправляем напоминание всем участникам, кто еще не оплатил
                 Object.keys(u).forEach(userId => {
                     if (u[userId] && u[userId].role === "participant" && !collection.paidUsers?.[userId]) {
-                        const userName = u[userId].name || "Участник";
                         let reminderText = '';
                         
                         if (diffDays === 3) {
@@ -107,7 +105,6 @@ async function checkDeadlines() {
                     }
                 });
                 
-                // Отправляем уведомление казначею
                 if (u[u.treasurerId]) {
                     const paidCount = Object.keys(collection.paidUsers || {}).length;
                     const totalParticipants = Object.keys(u).filter(id => u[id].role === "participant").length;
@@ -129,14 +126,12 @@ async function checkDeadlines() {
             }
         }
         
-        // Если дедлайн прошел, отправляем финальный отчет
         if (diffDays < 0 && !collection.deadlinePassedNotified) {
             collection.deadlinePassedNotified = true;
             
             const paidCount = Object.keys(collection.paidUsers || {}).length;
             const totalParticipants = Object.keys(u).filter(id => u[id].role === "participant").length;
             
-            // Уведомляем казначея
             if (u[u.treasurerId]) {
                 bot.api.sendMessage(u.treasurerId,
 `📊 **ИТОГИ СБОРА**
@@ -154,18 +149,12 @@ async function checkDeadlines() {
     saveCollections(cols);
 }
 
-// Запускаем проверку дедлайнов каждый день в 10:00 утра
 function startDeadlineChecker() {
-    // Проверяем сразу при запуске
     checkDeadlines();
-    
-    // Затем проверяем каждый час (для надежности)
-    setInterval(checkDeadlines, 60 * 60 * 1000); // Каждый час
-    
+    setInterval(checkDeadlines, 60 * 60 * 1000);
     console.log("⏰ Планировщик напоминаний запущен");
 }
 
-// ---------- НАСТРОЙКА КНОПКИ МЕНЮ ----------
 async function setupMenuButton() {
     try {
         await bot.api.setMyCommands([
@@ -187,7 +176,6 @@ async function setupMenuButton() {
     }
 }
 
-// ---------- МЕНЮ ----------
 async function treasurerMenu(ctx) {
     const kb = new InlineKeyboard()
         .text("➕ Создать сбор", "new_collection").text("📊 Создать опрос", "new_poll").row()
@@ -216,7 +204,6 @@ async function participantMenu(ctx) {
     }
 }
 
-// ---------- START ----------
 bot.command("start", async (ctx) => {
     const u = users();
     
@@ -245,7 +232,6 @@ bot.command("start", async (ctx) => {
     }
 });
 
-// ---------- МЕНЮ (команда) ----------
 bot.command("menu", async (ctx) => {
     const u = users();
     const user = u[ctx.chat.id];
@@ -257,7 +243,6 @@ bot.command("menu", async (ctx) => {
     user.role === "treasurer" ? await treasurerMenu(ctx) : await participantMenu(ctx);
 });
 
-// ---------- HELP (исправленная версия) ----------
 bot.command("help", (ctx) => {
     const helpText = `
 📋 Доступные команды:
@@ -281,11 +266,9 @@ bot.command("help", (ctx) => {
 • Попробуйте написать /menu
 • Обратитесь к казначею
     `;
-    // Отправляем без parse_mode, чтобы избежать ошибок форматирования
     ctx.reply(helpText);
 });
 
-// ---------- CHECK DEADLINES (ручная проверка) ----------
 bot.command("check_deadlines", async (ctx) => {
     const u = users();
     const user = u[ctx.chat.id];
@@ -299,7 +282,6 @@ bot.command("check_deadlines", async (ctx) => {
     await ctx.reply("✅ Проверка завершена");
 });
 
-// ---------- SET TREASURER С ПРОВЕРКОЙ ПАРОЛЯ ----------
 bot.callbackQuery("be_treasurer", async (ctx) => {
     await safeAnswer(ctx);
     const u = users();
@@ -308,7 +290,6 @@ bot.callbackQuery("be_treasurer", async (ctx) => {
         return await participantMenu(ctx);
     }
     
-    // Запрашиваем пароль
     u[ctx.chat.id] = { 
         role: "pending_treasurer", 
         name: ctx.from.first_name, 
@@ -320,19 +301,50 @@ bot.callbackQuery("be_treasurer", async (ctx) => {
     await ctx.reply("🔐 Введите пароль для доступа к роли казначея:");
 });
 
-// ---------- ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ----------
+bot.callbackQuery("new_collection", async (ctx) => {
+    await safeAnswer(ctx);
+    const u = users();
+    
+    if (u[ctx.chat.id]?.role !== "treasurer") {
+        return ctx.reply("❌ Только казначей может создавать сборы");
+    }
+    
+    u[ctx.chat.id].step = "collection_title";
+    u[ctx.chat.id].temp = {};
+    saveUsers(u);
+    
+    await ctx.reply("На что собираем средства? (введите название сбора)");
+});
+
+bot.callbackQuery("new_poll", async (ctx) => { 
+    await safeAnswer(ctx); 
+    const u = users();
+    
+    if (u[ctx.chat.id]?.role !== "treasurer") {
+        return ctx.reply("❌ Только казначей может создавать опросы");
+    }
+    
+    u[ctx.chat.id].step = "poll_question"; 
+    u[ctx.chat.id].temp = {};
+    saveUsers(u); 
+    
+    await ctx.reply("Введите вопрос опроса:"); 
+});
+
 bot.on("message:text", async (ctx) => {
   const u = users();
-  const user = u[ctx.chat.id];
-  if (!user || !user.step) return;
+  const userId = ctx.chat.id;
+  const user = u[userId];
+  
+  if (!user) {
+    return;
+  }
 
-  // ---------- ПРОВЕРКА ПАРОЛЯ ДЛЯ КАЗНАЧЕЯ ----------
   if (user.step === "awaiting_password") {
       const enteredPassword = ctx.message.text;
       
       if (enteredPassword === "1987") {
-          // Пароль верный - назначаем казначеем
-          u.treasurerId = ctx.chat.id;
+          u.treasurerId = userId;
           user.role = "treasurer";
           user.step = null;
           user.temp = {};
@@ -342,8 +354,7 @@ bot.on("message:text", async (ctx) => {
           await treasurerMenu(ctx);
           await ctx.reply("💡 Подсказка: используйте кнопку меню (≡) для быстрого доступа\n⏰ Напоминания о дедлайнах приходят автоматически");
       } else {
-          // Пароль неверный - удаляем временные данные
-          delete u[ctx.chat.id];
+          delete u[userId];
           saveUsers(u);
           
           await ctx.reply("❌ Неверный пароль. Доступ запрещен.\n\nЕсли вы хотите стать казначеем, нажмите /start и попробуйте снова.");
@@ -351,15 +362,14 @@ bot.on("message:text", async (ctx) => {
       return;
   }
 
-  // ---------- СОБОР ----------
-  if (user.step.startsWith("collection_")) {
+  if (user.step && user.step.startsWith("collection_")) {
     if (!user.temp) user.temp = {};
 
     if (user.step === "collection_title") {
       user.temp.title = ctx.message.text;
       user.step = "collection_amount";
       saveUsers(u);
-      await ctx.reply("Сумма:");
+      await ctx.reply("Сумма (введите число):");
     } 
     else if (user.step === "collection_amount") {
       user.temp.amount = ctx.message.text;
@@ -368,7 +378,6 @@ bot.on("message:text", async (ctx) => {
       await ctx.reply("Сдать средства до (дд.мм.гггг):");
     } 
     else if (user.step === "collection_deadline") {
-      // Проверяем формат даты
       const dateStr = ctx.message.text;
       const parsedDate = parseDate(dateStr);
       
@@ -406,7 +415,6 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  // ---------- ОПРОС ----------
   if (user.step === "poll_question") {
     if (!user.temp) user.temp = {};
 
@@ -440,7 +448,6 @@ ${poll.question}
   }
 });
 
-// ---------- MY COLLECTIONS ----------
 bot.callbackQuery("my_collections", async (ctx) => {
     await safeAnswer(ctx);
     const cols = collections();
@@ -458,7 +465,6 @@ bot.callbackQuery("my_collections", async (ctx) => {
 });
 
 function renderCollectionCard(c, u) {
-    // Вычисляем сколько дней до дедлайна
     let deadlineInfo = "";
     const deadlineDate = parseDate(c.deadline);
     if (deadlineDate) {
@@ -506,7 +512,6 @@ ${c.payment || "Не указано"}
     return text;
 }
 
-// ОТОБРАЖЕНИЕ КОНКРЕТНОГО СБОРА ДЛЯ КАЗНАЧЕЯ
 bot.callbackQuery(/open_col_(\d+)/, async (ctx) => {
     await safeAnswer(ctx);
     const c = collections().find(x => x.id == ctx.match[1]);
@@ -530,7 +535,6 @@ bot.callbackQuery(/open_col_(\d+)/, async (ctx) => {
     await safeEditMessage(ctx, text, keyboard);
 });
 
-// УДАЛЕНИЕ СБОРА
 bot.callbackQuery(/delete_col_(\d+)/, async (ctx) => {
     await safeAnswer(ctx);
     
@@ -550,7 +554,6 @@ bot.callbackQuery(/delete_col_(\d+)/, async (ctx) => {
     await safeEditMessage(ctx, text, keyboard);
 });
 
-// ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ
 bot.callbackQuery(/confirm_delete_(\d+)/, async (ctx) => {
     await safeAnswer(ctx);
     
@@ -580,7 +583,6 @@ bot.callbackQuery(/confirm_delete_(\d+)/, async (ctx) => {
     await safeEditMessage(ctx, "✅ Сбор успешно удалён!", kb);
 });
 
-// ОСТАЛЬНЫЕ ОБРАБОТЧИКИ СБОРОВ
 bot.callbackQuery("share", async (ctx) => {
     await safeAnswer(ctx);
     await ctx.reply(`🔗 Ссылка на бота:\nhttps://t.me/${ctx.me.username}`);
@@ -652,15 +654,6 @@ bot.callbackQuery(/paid_(\d+)/, async (ctx) => {
 // =====================================================
 // ===================== POLLS =======================
 // =====================================================
-bot.callbackQuery("new_poll", async (ctx) => { 
-    await safeAnswer(ctx); 
-    const u = users(); 
-    u[ctx.chat.id].step = "poll_question"; 
-    u[ctx.chat.id].temp = {};
-    saveUsers(u); 
-    await ctx.reply("Введите вопрос опроса:"); 
-});
-
 bot.callbackQuery("my_polls", async (ctx) => {
     await safeAnswer(ctx);
     const allPolls = polls();
@@ -791,7 +784,6 @@ bot.callbackQuery(/vote_(\d+)_(yes|no)/, async (ctx) => {
     await safeEditMessage(ctx, "✅ Голос принят", kb);
 });
 
-// ---------- BACK ----------
 bot.callbackQuery("back", async (ctx) => {
     await safeAnswer(ctx);
     const u = users();
@@ -808,7 +800,6 @@ bot.callbackQuery("back", async (ctx) => {
     }
 });
 
-// ---------- RESET TREASURER ----------
 bot.command("reset_treasurer", async (ctx) => {
     const u = users();
 
@@ -816,8 +807,7 @@ bot.command("reset_treasurer", async (ctx) => {
         return ctx.reply("❌ Казначей уже не назначен.");
     }
 
-    delete u.treasurerId; // удаляем текущего казначея
-    // при желании можно оставить старого пользователя в списке участников
+    delete u.treasurerId;
     if (u[ctx.chat.id]) {
         u[ctx.chat.id].role = "participant"; 
     }
@@ -826,16 +816,23 @@ bot.command("reset_treasurer", async (ctx) => {
     await ctx.reply("✅ Казначей сброшен. Следующий, кто введет правильный пароль, станет новым казначеем.");
 });
 
-// ---------- ЗАПУСК ----------
-async function startBot() {
-    await setupMenuButton();
+// ================ ВЕБ-СЕРВЕР ДЛЯ RENDER ================
+// Простой сервер только для того, чтобы Render не ругался
+app.get('/', (req, res) => {
+    res.send('Бот работает! 🤖');
+});
+
+// Запускаем сервер и бота
+app.listen(port, () => {
+    console.log(`🚀 Веб-сервер запущен на порту ${port}`);
     
-    // Запускаем планировщик напоминаний
+    // Настраиваем меню и запускаем бота
+    setupMenuButton();
     startDeadlineChecker();
     
+    // Запускаем бота в режиме long polling (НЕ webhook)
     bot.start();
+    
     console.log("🤖 Бот запущен и готов к работе!");
     console.log("⏰ Напоминания о дедлайнах активны (проверка каждый час)");
-}
-
-startBot();
+});
