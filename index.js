@@ -806,4 +806,23 @@ async function startBot() {
     console.log("⏰ Напоминания о дедлайнах активны (проверка каждый час)");
 }
 
+
+// ---------- RESET TREASURER ----------
+bot.command("reset_treasurer", async (ctx) => {
+    const u = users();
+
+    if (!u.treasurerId) {
+        return ctx.reply("❌ Казначей уже не назначен.");
+    }
+
+    delete u.treasurerId; // удаляем текущего казначея
+    // при желании можно оставить старого пользователя в списке участников
+    if (u[ctx.chat.id]) {
+        u[ctx.chat.id].role = "participant"; 
+    }
+    saveUsers(u);
+
+    await ctx.reply("✅ Казначей сброшен. Следующий, кто нажмет 'Я казначей', станет новым казначеем.");
+});
+
 startBot();
