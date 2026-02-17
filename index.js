@@ -901,6 +901,32 @@ bot.command("force_reset_treasurer", async (ctx) => {
     );
 });
 
+// ---------- ВРЕМЕННАЯ КОМАНДА ДЛЯ СБРОСА КАЗНАЧЕЯ ----------
+bot.command("reset_now", async (ctx) => {
+    const u = users();
+    
+    // Полностью сбрасываем казначея
+    delete u.treasurerId;
+    
+    // Всех пользователей делаем участниками
+    Object.keys(u).forEach(id => {
+        u[id].role = "participant";
+        u[id].step = null;
+        u[id].temp = {};
+    });
+    
+    saveUsers(u);
+    
+    await ctx.reply(
+        "✅ **КАЗНАЧЕЙ ПОЛНОСТЬЮ СБРОШЕН!**\n\n" +
+        "Теперь любой может стать казначеем:\n" +
+        "1️⃣ Нажмите /start\n" +
+        "2️⃣ Выберите '👑 Я казначей'\n" +
+        "3️⃣ Введите пароль 1987",
+        { parse_mode: "Markdown" }
+    );
+});
+
 // ================ ВЕБ-СЕРВЕР ДЛЯ RENDER ================
 // Простой сервер только для того, чтобы Render не ругался
 app.get('/', (req, res) => {
