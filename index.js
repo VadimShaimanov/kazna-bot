@@ -800,20 +800,105 @@ bot.callbackQuery("back", async (ctx) => {
     }
 });
 
+// ---------- RESET TREASURER (ИСПРАВЛЕННАЯ ВЕРСИЯ) ----------
 bot.command("reset_treasurer", async (ctx) => {
     const u = users();
-
+    const userId = ctx.chat.id;
+    const user = u[userId];
+    
+    // Проверяем, что команду вводит текущий казначей
+    if (!user || user.role !== "treasurer") {
+        return ctx.reply("❌ Только казначей может использовать эту команду!");
+    }
+    
+    // Проверяем, есть ли вообще казначей
     if (!u.treasurerId) {
         return ctx.reply("❌ Казначей уже не назначен.");
     }
 
-    delete u.treasurerId;
-    if (u[ctx.chat.id]) {
-        u[ctx.chat.id].role = "participant"; 
-    }
-    saveUsers(u);
+    // Запрашиваем подтверждение
+    const confirmKeyboard = new InlineKeyboard()
+        .text("✅ Да, сбросить казначея", "confirm_reset_treasurer").row()
+        .text("❌ Нет, отмена", "cancel_reset");
+    
+    await ctx.reply(
+        "⚠️ **Вы уверены, что хотите сбросить казначея?**\n\n" +
+        "После этого любой сможет стать новым казначеем, введя пароль.\n\n" +
+        "Все данные о сборах и опросах сохранятся.",
+        { 
+            reply_markup: confirmKeyboard,
+            parse_mode: "Markdown" 
+        }
+    );
+});
 
-    await ctx.reply("✅ Казначей сброшен. Следующий, кто введет правильный пароль, станет новым казначеем.");
+// Подтверждение сброса казначея
+bot.callbackQuery("confirm_reset_treasurer", async (ctx) => {
+    await safeAnswer(ctx);
+    const u = users();
+    
+    // Удаляем казначея
+    delete u.treasurerId;
+    
+    // Меняем роль текущего пользователя на участника
+    if (u[ctx.chat.id]) {
+        u[ctx.chat.id].role = "participant";
+        u[ctx.chat.id].step = null;
+        u[ctx.chat.id].temp = {};
+    }
+    
+    saveUsers(u);
+    
+    await ctx.editMessageText(
+        "✅ **Казначей успешно сброшен!**\n\n" +
+        "Теперь любой желающий может стать казначеем:\n" +
+        "1️⃣ Нажмите /start\n" +
+        "2️⃣ Выберите '👑 Я казначей'\n" +
+        "3️⃣ Введите пароль 1987",
+        { parse_mode: "Markdown" }
+    );
+});
+
+// Отмена сброса
+bot.callbackQuery("cancel_reset", async (ctx) => {
+    await safeAnswer(ctx);
+    await ctx.editMessageText("❌ Сброс казначея отменён.");
+    
+    // Возвращаем в меню
+    const u = users();
+    if (u[ctx.chat.id]?.role === "treasurer") {
+        await treasurerMenu(ctx);
+    }
+});
+
+// Альтернативный простой способ сброса (без подтверждения)
+bot.command("force_reset_treasurer", async (ctx) => {
+    const u = users();
+    const userId = ctx.chat.id;
+    const user = u[userId];
+    
+    // Проверяем, что команду вводит текущий казначей
+    if (!user || user.role !== "treasurer") {
+        return ctx.reply("❌ Только казначей может использовать эту команду!");
+    }
+    
+    // Удаляем казначея
+    delete u.treasurerId;
+    
+    // Меняем роль текущего пользователя на участника
+    if (u[ctx.chat.id]) {
+        u[ctx.chat.id].role = "participant";
+        u[ctx.chat.id].step = null;
+        u[ctx.chat.id].temp = {};
+    }
+    
+    saveUsers(u);
+    
+    await ctx.reply(
+        "✅ **Казначей принудительно сброшен!**\n\n" +
+        "Теперь любой желающий может стать казначеем, введя пароль 1987.",
+        { parse_mode: "Markdown" }
+    );
 });
 
 // ================ ВЕБ-СЕРВЕР ДЛЯ RENDER ================
