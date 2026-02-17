@@ -257,31 +257,32 @@ bot.command("menu", async (ctx) => {
     user.role === "treasurer" ? await treasurerMenu(ctx) : await participantMenu(ctx);
 });
 
-// ---------- HELP ----------
+// ---------- HELP (исправленная версия) ----------
 bot.command("help", (ctx) => {
     const helpText = `
-📋 **Доступные команды:**
+📋 Доступные команды:
 /start - Начать работу с ботом
 /menu - Открыть главное меню
 /help - Показать эту справку
 /check_deadlines - Проверить дедлайны (только для казначея)
 
-💡 **Как пользоваться:**
+💡 Как пользоваться:
 • Нажмите на кнопку меню (≡) рядом с полем ввода
 • Выберите нужную команду из списка
 • Следуйте инструкциям бота
 
-⏰ **Напоминания:**
+⏰ Напоминания:
 • Бот автоматически напоминает о дедлайнах за 3 дня, 1 день и в день сбора
 • Казначей получает уведомления о статусе сбора
 • После дедлайна приходит итоговый отчет
 
-❓ **Если что-то не работает:**
+❓ Если что-то не работает:
 • Убедитесь, что вы нажали /start
 • Попробуйте написать /menu
 • Обратитесь к казначею
     `;
-    ctx.reply(helpText, { parse_mode: "Markdown" });
+    // Отправляем без parse_mode, чтобы избежать ошибок форматирования
+    ctx.reply(helpText);
 });
 
 // ---------- CHECK DEADLINES (ручная проверка) ----------
@@ -298,7 +299,7 @@ bot.command("check_deadlines", async (ctx) => {
     await ctx.reply("✅ Проверка завершена");
 });
 
-// ---------- SET TREASURER ----------
+// ---------- SET TREASURER С ПРОВЕРКОЙ ПАРОЛЯ ----------
 bot.callbackQuery("be_treasurer", async (ctx) => {
     await safeAnswer(ctx);
     const u = users();
@@ -307,35 +308,48 @@ bot.callbackQuery("be_treasurer", async (ctx) => {
         return await participantMenu(ctx);
     }
     
-    u.treasurerId = ctx.chat.id;
+    // Запрашиваем пароль
     u[ctx.chat.id] = { 
-        role: "treasurer", 
+        role: "pending_treasurer", 
         name: ctx.from.first_name, 
-        step: null, 
+        step: "awaiting_password", 
         temp: {} 
     };
     saveUsers(u);
     
-    await treasurerMenu(ctx);
-    await ctx.reply("💡 Подсказка: используйте кнопку меню (≡) для быстрого доступа\n⏰ Напоминания о дедлайнах приходят автоматически");
+    await ctx.reply("🔐 Введите пароль для доступа к роли казначея:");
 });
 
-// =====================================================
-// ===================== COLLECTIONS ==================
-// =====================================================
-bot.callbackQuery("new_collection", async (ctx) => {
-    await safeAnswer(ctx);
-    const u = users();
-    u[ctx.chat.id].step = "collection_title";
-    u[ctx.chat.id].temp = {};
-    saveUsers(u);
-    await ctx.reply("На что собираем средства?");
-});
-
+// ---------- ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ----------
 bot.on("message:text", async (ctx) => {
   const u = users();
   const user = u[ctx.chat.id];
   if (!user || !user.step) return;
+
+  // ---------- ПРОВЕРКА ПАРОЛЯ ДЛЯ КАЗНАЧЕЯ ----------
+  if (user.step === "awaiting_password") {
+      const enteredPassword = ctx.message.text;
+      
+      if (enteredPassword === "1987") {
+          // Пароль верный - назначаем казначеем
+          u.treasurerId = ctx.chat.id;
+          user.role = "treasurer";
+          user.step = null;
+          user.temp = {};
+          saveUsers(u);
+          
+          await ctx.reply("✅ Пароль принят! Вы назначены казначеем.");
+          await treasurerMenu(ctx);
+          await ctx.reply("💡 Подсказка: используйте кнопку меню (≡) для быстрого доступа\n⏰ Напоминания о дедлайнах приходят автоматически");
+      } else {
+          // Пароль неверный - удаляем временные данные
+          delete u[ctx.chat.id];
+          saveUsers(u);
+          
+          await ctx.reply("❌ Неверный пароль. Доступ запрещен.\n\nЕсли вы хотите стать казначеем, нажмите /start и попробуйте снова.");
+      }
+      return;
+  }
 
   // ---------- СОБОР ----------
   if (user.step.startsWith("collection_")) {
@@ -794,19 +808,6 @@ bot.callbackQuery("back", async (ctx) => {
     }
 });
 
-// ---------- ЗАПУСК ----------
-async function startBot() {
-    await setupMenuButton();
-    
-    // Запускаем планировщик напоминаний
-    startDeadlineChecker();
-    
-    bot.start();
-    console.log("🤖 Бот запущен и готов к работе!");
-    console.log("⏰ Напоминания о дедлайнах активны (проверка каждый час)");
-}
-
-
 // ---------- RESET TREASURER ----------
 bot.command("reset_treasurer", async (ctx) => {
     const u = users();
@@ -822,7 +823,19 @@ bot.command("reset_treasurer", async (ctx) => {
     }
     saveUsers(u);
 
-    await ctx.reply("✅ Казначей сброшен. Следующий, кто нажмет 'Я казначей', станет новым казначеем.");
+    await ctx.reply("✅ Казначей сброшен. Следующий, кто введет правильный пароль, станет новым казначеем.");
 });
+
+// ---------- ЗАПУСК ----------
+async function startBot() {
+    await setupMenuButton();
+    
+    // Запускаем планировщик напоминаний
+    startDeadlineChecker();
+    
+    bot.start();
+    console.log("🤖 Бот запущен и готов к работе!");
+    console.log("⏰ Напоминания о дедлайнах активны (проверка каждый час)");
+}
 
 startBot();
